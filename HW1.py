@@ -18,11 +18,31 @@ class TaskStatus(Enum):
     COMPLETED = 'completed'
     FAILED = 'failed'
 
+class Balance:
+    def __init__(self, amount:int) -> None:
+        self.__amount = amount
+
+    @property
+    def amount(self) -> int:
+        return self.__amount
+
+    def top_up(self, amount: int) -> None:
+        if amount <= 0:
+            raise ValueError("Сумма пополнения должна быть положительной")
+        self.__amount += amount
+    def charge(self, amount: int) -> None:
+        if amount > self.__amount:
+            raise ValueError("Недостаточно средств на балансе")
+        self.__amount -= amount
+    def __repr__(self) -> str:
+        return f"<Balance amount={self.__amount}>"
+
+
 class User:
-    def __init__(self, email: str,password:str, user_id:int, balance: int = 0) -> None:
+    def __init__(self, email: str,password:str, user_id:int, amount: int=0) -> None:
         self.__email = email
         self.__password = password
-        self.__balance = balance
+        self.__balance = Balance(amount)
         self.__user_id = user_id
         self.__creation_date = datetime.now()
         self._role= Role.USER
@@ -33,29 +53,26 @@ class User:
     def email(self) -> str:
         return self.__email
     @property
-    def balance(self) -> int:
+    def balance(self) -> Balance:
         return self.__balance
     @property
     def role(self) -> Role:
         return self._role
-    def top_up(self, amount: int) -> None:
-        if amount <= 0:
-            raise ValueError("Сумма пополнения должна быть положительной")
-        self.__balance += amount
-    def charge(self, amount: int) -> None:
-        if amount > self.__balance:
-            raise ValueError("Недостаточно средств на балансе")
-        self.__balance -= amount
+
     def __repr__(self) -> str:
-        return f"<User name={self.__email} user_id  = {self.__user_id} balance={self.__balance}>"
+        return f"<User email={self.__email} user_id  = {self.__user_id} balance={self.__balance.amount}>"
+
+
 class Admin(User):
-    def __init__(self, email: str, password:str, user_id:int) -> None:
-        super().__init__(email,password,user_id)
+    def __init__(self, email: str, password:str, user_id:int,amount:int=0) -> None:
+        super().__init__(email,password,user_id, amount)
         self._role = Role.ADMIN
         self.__permissions:list[str]=["read", "write", "delete"]
     @property
     def permissions(self) -> list[str]:
         return list(self.__permissions)
+
+
 class MLModel(abc.ABC):
     def __init__(self, model:str,model_id:int,price:int, description:str) -> None:
         self.__model = model
@@ -71,10 +88,13 @@ class MLModel(abc.ABC):
     @abc.abstractmethod
     def recognise (self, task: 'Task')->'Result':
         pass
+
+
 class OCR(MLModel):
     def recognise(self, task: 'Task')->'Result':
         task.complete()
         return Result(task=task, model=self, output='OCR')
+
 
 class Task:
     def __init__(self,task_id:int, name:str, user:User, model: MLModel, input_data:Any) -> None:
@@ -85,6 +105,7 @@ class Task:
         self.__input_data = input_data
         self.__task_status = TaskStatus.PENDING
         self.__creation_date = datetime.now()
+
     @property
     def task_id(self) -> int:
         return self.__task_id
@@ -122,6 +143,7 @@ class Task:
     def __repr__(self) -> str:
         return f"<Task name={self.__name} task_id  = {self.__task_id} status={self.__task_status}>"
 
+
 @dataclass
 class Transaction:
     transaction_type: TransactionType
@@ -130,12 +152,14 @@ class Transaction:
     task: Optional['Task'] = None
     created_at: datetime=field(default_factory=datetime.now)
 
+
 @dataclass
 class Result:
     task: Task
     model: MLModel
     output: str
     created_at: datetime = field(default_factory=datetime.now)
+
 
 class History:
     def __init__(self):
@@ -155,7 +179,7 @@ class MLService:
 
     def top_up(self, user: User, amount: int) -> None:
         try:
-            user.top_up(amount)
+            user.balance.top_up(amount)
             self.__transactions.append(Transaction(
                 transaction_type=TransactionType.TOP_UP,
                 amount=amount,
@@ -168,7 +192,7 @@ class MLService:
     def process(self, task: Task) -> Result:
         user = task.user
         try:
-            user.charge(task.model.price)
+            user.balance.charge(task.model.price)
             result = task.run()
             self.__history.append(result)
             self.__transactions.append(Transaction(
